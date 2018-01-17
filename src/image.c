@@ -288,7 +288,7 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             int top   = (b.y-b.h/2.)*im.h;
             int bot   = (b.y+b.h/2.)*im.h;
 
-            sprintf(output+strlen(output),"{object:%s, id:%d, prob:%.0f%%, pos:{left:%d,right:%d,top:%d,bottom:%d}},", names[j], i, probs[i][j]*100, left, right, top, bot);
+            sprintf(output+strlen(output),"{\"object\":\"%s\", \"id\":%d, \"prob\":\"%.0f%%\", \"pos\":{\"left\":%d,\"right\":%d,\"top\":%d,\"bottom\":%d}},", names[j], i, probs[i][j]*100, left, right, top, bot);
 
             log4c_category_log(logger,LOG4C_PRIORITY_DEBUG,"%d %d %d %d %d\n", i ,left,top,right,bot);
 
@@ -640,7 +640,7 @@ image get_image_from_stream(CvCapture *cap)
     return im;
 }
 
-image get_image_from_stream_compress(CvCapture *cap, int ratio)
+image get_image_from_stream_compress(CvCapture *cap, float ratio)
 {
     IplImage* src = cvQueryFrame(cap);
     if (!src) return make_empty_image(0,0,0);
@@ -662,7 +662,7 @@ int fill_image_from_stream(CvCapture *cap, image im)
     return 1;
 }
 
-int fill_image_from_stream_compress(CvCapture *cap, image im, int ratio)
+int fill_image_from_stream_compress(CvCapture *cap, image im, float ratio)
 {
     IplImage* src = cvQueryFrame(cap);
     if (!src) return 0;

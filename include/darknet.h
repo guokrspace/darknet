@@ -749,7 +749,7 @@ matrix make_matrix(int rows, int cols);
 #ifndef __cplusplus
 #ifdef OPENCV
 image get_image_from_stream(CvCapture *cap);
-image get_image_from_stream_compress(CvCapture *cap, int ratio);
+image get_image_from_stream_compress(CvCapture *cap, float ratio);
 #endif
 #endif
 void free_image(image m);

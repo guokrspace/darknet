@@ -17,14 +17,14 @@ static char **demo_names;
 static image **demo_alphabet;
 static int demo_classes;
 
-static float **probs;
-static box *boxes;
+float **probs;
+box *boxes;
 static network *net;
-static image buff [3];
-static image buff_letter[3];
-static int buff_index = 0;
+image buff [3];
+image buff_letter[3];
+int buff_index = 0;
 static CvCapture * cap;
-static IplImage  * ipl;
+IplImage  * ipl;
 static float fps = 0;
 static float demo_thresh = 0;
 static float demo_hier = .5;
@@ -71,11 +71,12 @@ void *detect_in_thread(void *ptr)
     printf("\nFPS:%.1f\n",fps);
     printf("Objects:\n\n");
     image display = buff[(buff_index+2) % 3];
-    sprintf(output_buf,"{objects:[");
+
+    sprintf(output_buf,"{\"objects\":[");
     draw_detections(display, demo_detections, demo_thresh, boxes, probs, 0, demo_names, demo_alphabet, demo_classes,
                     logger, output_buf);
     sprintf(output_buf+strlen(output_buf),"]}");
-    printf(output_buf);
+
     reply = redisCommand(c,"LPUSH objectlist %s", output_buf);
     freeReplyObject(reply);
     memset(output_buf,0x0,sizeof(output_buf));
@@ -88,7 +89,7 @@ void *detect_in_thread(void *ptr)
 
 void *fetch_in_thread(void *ptr)
 {
-    int status = fill_image_from_stream_compress(cap, buff[buff_index], 1);
+    int status = fill_image_from_stream_compress(cap, buff[buff_index], 0.5);
     letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
     if(status == 0) demo_done = 1;
     return 0;
@@ -96,7 +97,8 @@ void *fetch_in_thread(void *ptr)
 
 void *display_in_thread(void *ptr)
 {
-    show_image_cv(buff[(buff_index + 1)%3], "Demo", ipl);
+    char *win_name = ptr;
+    show_image_cv(buff[(buff_index + 1)%3], "0", ipl);
     int c = cvWaitKey(1);
     if (c != -1) c = c%256;
     if (c == 27) {
@@ -159,8 +161,8 @@ void demo(type_param* param)
     printf("Demo\n");
     net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
-    pthread_t detect_thread;
-    pthread_t fetch_thread;
+    pthread_t detect_thread[2];
+    pthread_t fetch_thread[2];
 
     srand(2222222);
 
@@ -176,6 +178,7 @@ void demo(type_param* param)
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
     c = redisConnectWithTimeout(hostname, port, timeout);
+
     if (c == NULL || c->err) {
         if (c) {
             printf("Connection error: %s\n", c->errstr);
@@ -207,7 +210,6 @@ void demo(type_param* param)
 
     layer l = net->layers[net->n-1];
     demo_detections = l.n*l.w*l.h;
-    log4c_category_log(logger, LOG4C_PRIORITY_DEBUG, "l.n:%d, l.w:%d, l.h:%d", l.n,l.w,l.h);
     int j;
 
     avg = (float *) calloc(l.outputs, sizeof(float));
@@ -217,24 +219,42 @@ void demo(type_param* param)
     probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
     for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
 
-    buff[0] = get_image_from_stream_compress(cap,1);
-    buff[1] = get_image_from_stream_compress(cap,1);
-    buff[2] = get_image_from_stream_compress(cap,1);
+    buff[0] = get_image_from_stream_compress(cap,.5);
+    buff[1] = get_image_from_stream_compress(cap,.5);
+    buff[2] = get_image_from_stream_compress(cap,.5);
     buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
     buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
     buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
+
     ipl = cvCreateImage(cvSize(buff[0].w,buff[0].h), IPL_DEPTH_8U, buff[0].c);
 
     int count = 0;
+
+    char win_name[16];
     if(!prefix){
-        cvNamedWindow("Demo", CV_WINDOW_NORMAL); 
-        if(fullscreen){
-            cvSetWindowProperty("Demo", CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
-        } else {
-            cvMoveWindow("Demo", 0, 0);
-            cvResizeWindow("Demo", ipl->width, ipl->height);
+        for(int i=0; i<2; i++) {
+            sprintf(win_name,"%d",i);
+            cvNamedWindow(win_name, CV_WINDOW_NORMAL);
+
+            if (fullscreen) {
+                cvSetWindowProperty(win_name, CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
+            } else {
+                cvMoveWindow(win_name, 0, 0);
+                cvResizeWindow(win_name, ipl->width, ipl->height);
+            }
         }
     }
+
+//    pid_t child_pid;
+//
+//    child_pid = fork();
+//    if(child_pid != 0) {
+//        printf("Parent: child's process id = %d\n", child_pid);
+//        memcpy(win_name, "0", strlen("0"));
+//    } else {
+//        printf("Child:  my process id = %d\n", (int) getpid());
+//        memcpy(win_name, "1", strlen("1"));
+//    }
 
     demo_time = what_time_is_it_now();
 
@@ -246,7 +266,7 @@ void demo(type_param* param)
         if(!prefix){
             fps = 1./(what_time_is_it_now() - demo_time);
             demo_time = what_time_is_it_now();
-            display_in_thread(0);
+            display_in_thread(win_name);
         }else{
             char name[256];
             sprintf(name, "%s_%08d", prefix, count);
