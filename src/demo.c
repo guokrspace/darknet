@@ -13,6 +13,8 @@
 #define DEMO 1
 #ifdef OPENCV
 
+#define NUM_VIDEO_CHANNEL 2
+
 static char **demo_names;
 static image **demo_alphabet;
 static int demo_classes;
@@ -20,11 +22,12 @@ static int demo_classes;
 float **probs;
 box *boxes;
 static network *net;
-image buff [3];
-image buff_letter[3];
-int buff_index = 0;
-static CvCapture * cap;
-IplImage  * ipl;
+image buff [NUM_VIDEO_CHANNEL][3];
+image buff_letter[NUM_VIDEO_CHANNEL][3];
+int buff_index[NUM_VIDEO_CHANNEL];
+static CvCapture * cap[NUM_VIDEO_CHANNEL];
+IplImage  * ipl[NUM_VIDEO_CHANNEL];
+char window_name[NUM_VIDEO_CHANNEL][16];
 static float fps = 0;
 static float demo_thresh = 0;
 static float demo_hier = .5;
@@ -45,8 +48,25 @@ redisReply *reply;
 
 char output_buf[1024];
 
+typedef struct thread_arg{
+    char *window_name;
+    image buff [3];
+    image buff_letter[3];
+    int buff_index;
+    CvCapture * cap;
+    IplImage  * ipl;
+}T_Thread_Arg;
+
 void *detect_in_thread(void *ptr)
 {
+    T_Thread_Arg *arg = ptr;
+    CvCapture *cap = arg->cap;
+    image *buff = arg->buff;
+    image *buff_letter =  arg->buff_letter;
+    int buff_index = arg->buff_index;
+    char *win_name = arg->window_name;
+    IplImage *ipl = arg->ipl;
+
     running = 1;
     float nms = .4;
 
@@ -89,6 +109,11 @@ void *detect_in_thread(void *ptr)
 
 void *fetch_in_thread(void *ptr)
 {
+    T_Thread_Arg *arg = ptr;
+    CvCapture *cap = arg->cap;
+    image *buff = arg->buff;
+    image *buff_letter =  arg->buff_letter;
+    int buff_index = arg->buff_index;
     int status = fill_image_from_stream_compress(cap, buff[buff_index], 0.5);
     letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
     if(status == 0) demo_done = 1;
@@ -97,8 +122,15 @@ void *fetch_in_thread(void *ptr)
 
 void *display_in_thread(void *ptr)
 {
-    char *win_name = ptr;
-    show_image_cv(buff[(buff_index + 1)%3], "0", ipl);
+    T_Thread_Arg *arg = ptr;
+    CvCapture *cap = arg->cap;
+    image *buff = arg->buff;
+    image *buff_letter =  arg->buff_letter;
+    int buff_index = arg->buff_index;
+    char *win_name = arg->window_name;
+    IplImage *ipl = arg->ipl;
+
+    show_image_cv(buff[(buff_index + 1)%3], win_name, ipl);
     int c = cvWaitKey(1);
     if (c != -1) c = c%256;
     if (c == 27) {
@@ -150,6 +182,8 @@ void demo(type_param* param)
     int frames = param->fps;
     int fullscreen = param->fullscreen;
 
+    T_Thread_Arg thread_arg;
+
     demo_frame = avg_frames;
     predictions = calloc(demo_frame, sizeof(float*));
     image **alphabet = load_alphabet();
@@ -161,8 +195,8 @@ void demo(type_param* param)
     printf("Demo\n");
     net = load_network(cfgfile, weightfile, 0);
     set_batch_network(net, 1);
-    pthread_t detect_thread[2];
-    pthread_t fetch_thread[2];
+    pthread_t detect_thread;
+    pthread_t fetch_thread;
 
     srand(2222222);
 
@@ -189,20 +223,23 @@ void demo(type_param* param)
         exit(1);
     }
 
-    if(filename){
-        printf("video file: %s\n", filename);
-        cap = cvCreateFileCapture(filename);
-    }else{
-        cap = cvCaptureFromCAM(cam_index);
+    for(int i=0; i<NUM_VIDEO_CHANNEL;i++)
+    {
+        if(filename){
+            printf("video file: %s\n", filename);
+            cap[i] = cvCreateFileCapture(filename);
+        }else{
+            cap[0] = cvCaptureFromCAM(cam_index);
 
-        if(w){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FRAME_WIDTH, w);
-        }
-        if(h){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FRAME_HEIGHT, h);
-        }
-        if(frames){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FPS, frames);
+            if(w){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FRAME_WIDTH, w);
+            }
+            if(h){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FRAME_HEIGHT, h);
+            }
+            if(frames){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FPS, frames);
+            }
         }
     }
 
@@ -219,63 +256,63 @@ void demo(type_param* param)
     probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
     for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
 
-    buff[0] = get_image_from_stream_compress(cap,.5);
-    buff[1] = get_image_from_stream_compress(cap,.5);
-    buff[2] = get_image_from_stream_compress(cap,.5);
-    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
-
-    ipl = cvCreateImage(cvSize(buff[0].w,buff[0].h), IPL_DEPTH_8U, buff[0].c);
-
+    for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
+        buff[i][0] = get_image_from_stream_compress(cap[i], 0.5);
+        buff[i][1] = get_image_from_stream_compress(cap[i], 0.5);
+        buff[i][2] = get_image_from_stream_compress(cap[i], 0.5);
+        buff_letter[i][0] = letterbox_image(buff[i][0], net->w, net->h);
+        buff_letter[i][1] = letterbox_image(buff[i][1], net->w, net->h);
+        buff_letter[i][2] = letterbox_image(buff[i][2], net->w, net->h);
+        ipl[i] = cvCreateImage(cvSize(buff[i][0].w, buff[i][0].h), IPL_DEPTH_8U, buff[i][0].c);
+    }
     int count = 0;
 
-    char win_name[16];
     if(!prefix){
-        for(int i=0; i<2; i++) {
-            sprintf(win_name,"%d",i);
-            cvNamedWindow(win_name, CV_WINDOW_NORMAL);
+        for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
+            memset(window_name[i],0x0,sizeof(window_name[i]));
+            sprintf(window_name[i],"%d",i);
+            cvNamedWindow(window_name[i], CV_WINDOW_NORMAL);
 
             if (fullscreen) {
-                cvSetWindowProperty(win_name, CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
+                cvSetWindowProperty(window_name[i], CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
             } else {
-                cvMoveWindow(win_name, 0, 0);
-                cvResizeWindow(win_name, ipl->width, ipl->height);
+                cvMoveWindow(window_name[i], 0, 0);
+                cvResizeWindow(window_name[i], ipl[i]->width, ipl[i]->height);
             }
         }
     }
 
-//    pid_t child_pid;
-//
-//    child_pid = fork();
-//    if(child_pid != 0) {
-//        printf("Parent: child's process id = %d\n", child_pid);
-//        memcpy(win_name, "0", strlen("0"));
-//    } else {
-//        printf("Child:  my process id = %d\n", (int) getpid());
-//        memcpy(win_name, "1", strlen("1"));
-//    }
-
     demo_time = what_time_is_it_now();
 
     while(!demo_done){
-        buff_index = (buff_index + 1) %3;
-        if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
-        if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
+        for(int i=0; i<NUM_VIDEO_CHANNEL; i++)
+        {
+            buff_index[i] = (buff_index[i] + 1) %3;
 
-        if(!prefix){
-            fps = 1./(what_time_is_it_now() - demo_time);
-            demo_time = what_time_is_it_now();
-            display_in_thread(win_name);
-        }else{
-            char name[256];
-            sprintf(name, "%s_%08d", prefix, count);
-            save_image(buff[(buff_index + 1)%3], name);
+            memcpy(thread_arg.buff, buff[i], sizeof(buff[i]));
+            memcpy(thread_arg.buff_letter, buff_letter[i], sizeof(buff_letter[i]));
+            thread_arg.cap = cap[i];
+            thread_arg.buff_index = buff_index[i];
+            thread_arg.ipl = ipl[i];
+            thread_arg.window_name = window_name[i];
+
+            if(pthread_create(&fetch_thread, 0, fetch_in_thread, &thread_arg)) error("Thread creation failed");
+            if(pthread_create(&detect_thread, 0, detect_in_thread, &thread_arg)) error("Thread creation failed");
+
+            if(!prefix){
+                fps = 1./(what_time_is_it_now() - demo_time);
+                demo_time = what_time_is_it_now();
+                display_in_thread(&thread_arg);
+            }else{
+                char name[256];
+                sprintf(name, "%s_%08d", prefix, count);
+                save_image(buff[i][(buff_index[i] + 1)%3], name);
+            }
+            pthread_join(fetch_thread, 0);
+            pthread_join(detect_thread, 0);
+
+            ++count;
         }
-        pthread_join(fetch_thread, 0);
-        pthread_join(detect_thread, 0);
-
-        ++count;
     }
 
     if ( log4c_fini()){
@@ -307,24 +344,27 @@ void demo_compare(char *cfg1, char *weight1, char *cfg2, char *weight2, float th
 
     srand(2222222);
 
-    if(filename){
-        printf("video file: %s\n", filename);
-        cap = cvCaptureFromFile(filename);
-    }else{
-        cap = cvCaptureFromCAM(cam_index);
+    for(int i; i<NUM_VIDEO_CHANNEL; i++)
+    {
+        if(filename){
+            printf("video file: %s\n", filename);
+            cap[i] = cvCaptureFromFile(filename);
+        }else{
+            cap[i] = cvCaptureFromCAM(cam_index);
 
-        if(w){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FRAME_WIDTH, w);
+            if(w){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FRAME_WIDTH, w);
+            }
+            if(h){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FRAME_HEIGHT, h);
+            }
+            if(frames){
+                cvSetCaptureProperty(cap[i], CV_CAP_PROP_FPS, frames);
+            }
         }
-        if(h){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FRAME_HEIGHT, h);
-        }
-        if(frames){
-            cvSetCaptureProperty(cap, CV_CAP_PROP_FPS, frames);
-        }
+
+        if(!cap[i]) error("Couldn't connect to webcam.\n");
     }
-
-    if(!cap) error("Couldn't connect to webcam.\n");
 
     layer l = net->layers[net->n-1];
     demo_detections = l.n*l.w*l.h;
@@ -337,40 +377,52 @@ void demo_compare(char *cfg1, char *weight1, char *cfg2, char *weight2, float th
     probs = (float **)calloc(l.w*l.h*l.n, sizeof(float *));
     for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
 
-    buff[0] = get_image_from_stream_compress(cap, 1);
-    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
+    for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
 
-    ipl = cvCreateImage(cvSize(buff[0].w,buff[0].h), IPL_DEPTH_8U, buff[0].c);
+        buff[i][0] = get_image_from_stream_compress(cap[i], 1);
+        buff[i][1] = get_image_from_stream_compress(cap[i], 1);
+        buff[i][2] = get_image_from_stream_compress(cap[i], 1);
+        buff_letter[i][0] = letterbox_image(buff[i][0], net->w, net->h);
+        buff_letter[i][1] = letterbox_image(buff[i][0], net->w, net->h);
+        buff_letter[i][2] = letterbox_image(buff[i][0], net->w, net->h);
+        ipl[i] = cvCreateImage(cvSize(buff[i][0].w, buff[i][0].h), IPL_DEPTH_8U, buff[i][0].c);
+    }
 
     int count = 0;
+    char win_name[16];
     if(!prefix){
-        cvNamedWindow("Demo", CV_WINDOW_NORMAL); 
-        if(fullscreen){
-            cvSetWindowProperty("Demo", CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
-        } else {
-            cvMoveWindow("Demo", 0, 0);
-            cvResizeWindow("Demo", buff[0].w, buff[0].h);
+        for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
+            sprintf(win_name,"%d",i);
+            cvNamedWindow(win_name, CV_WINDOW_NORMAL);
+            if (fullscreen) {
+                cvSetWindowProperty(win_name, CV_WND_PROP_FULLSCREEN, CV_WINDOW_FULLSCREEN);
+            } else {
+                cvMoveWindow(win_name, 0, 0);
+                cvResizeWindow(win_name, buff[i][0].w, buff[i][0].h);
+            }
         }
     }
 
     demo_time = what_time_is_it_now();
 
     while(!demo_done){
-        buff_index = (buff_index + 1) %3;
-        if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
-        if(pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
-        if(!prefix){
-            fps = 1./(what_time_is_it_now() - demo_time);
-            demo_time = what_time_is_it_now();
-            display_in_thread(0);
-        }else{
-            char name[256];
-            sprintf(name, "%s_%08d", prefix, count);
-            save_image(buff[(buff_index + 1)%3], name);
+        for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
+            buff_index[i] = (buff_index[i] + 1) % 3;
+            if (pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
+            if (pthread_create(&detect_thread, 0, detect_in_thread, 0)) error("Thread creation failed");
+            if (!prefix) {
+                fps = 1. / (what_time_is_it_now() - demo_time);
+                demo_time = what_time_is_it_now();
+                display_in_thread(0);
+            } else {
+                char name[256];
+                sprintf(name, "%s_%08d", prefix, count);
+                save_image(buff[i][(buff_index[i] + 1) % 3], name);
+            }
+            pthread_join(fetch_thread, 0);
+            pthread_join(detect_thread, 0);
+            ++count;
         }
-        pthread_join(fetch_thread, 0);
-        pthread_join(detect_thread, 0);
-        ++count;
     }
 }
 #else
