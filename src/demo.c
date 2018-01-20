@@ -26,8 +26,10 @@ image buff [NUM_VIDEO_CHANNEL][3];
 image buff_letter[NUM_VIDEO_CHANNEL][3];
 int buff_index[NUM_VIDEO_CHANNEL];
 static CvCapture * cap[NUM_VIDEO_CHANNEL];
+static CvVideoWriter* wrt[NUM_VIDEO_CHANNEL];
 IplImage  * ipl[NUM_VIDEO_CHANNEL];
 char window_name[NUM_VIDEO_CHANNEL][16];
+
 static float fps = 0;
 static float demo_thresh = 0;
 static float demo_hier = .5;
@@ -54,7 +56,10 @@ typedef struct thread_arg{
     image buff_letter[3];
     int buff_index;
     CvCapture * cap;
+    CvVideoWriter **wrt;
     IplImage  * ipl;
+    int count;
+    char *output_file;
 }T_Thread_Arg;
 
 void *detect_in_thread(void *ptr)
@@ -66,6 +71,7 @@ void *detect_in_thread(void *ptr)
     int buff_index = arg->buff_index;
     char *win_name = arg->window_name;
     IplImage *ipl = arg->ipl;
+    int count = arg->count;
 
     running = 1;
     float nms = .4;
@@ -129,8 +135,20 @@ void *display_in_thread(void *ptr)
     int buff_index = arg->buff_index;
     char *win_name = arg->window_name;
     IplImage *ipl = arg->ipl;
+    int count = arg->count;
+    char *output = arg->output_file;
 
     show_image_cv(buff[(buff_index + 1)%3], win_name, ipl);
+
+    if( count % ((int)20 * 80) == 0)
+    {
+        //Reopen an empty file
+        if(*(arg->wrt))
+            cvReleaseVideoWriter(arg->wrt);
+        *(arg->wrt) = cvCreateVideoWriter(output, CV_FOURCC('h','2','6','4'), 20, cvSize(ipl->width, ipl->height), 1);
+    }
+    cvWriteFrame(*(arg->wrt), ipl);
+
     int c = cvWaitKey(1);
     if (c != -1) c = c%256;
     if (c == 27) {
@@ -181,6 +199,7 @@ void demo(type_param* param)
     int h = param->height;
     int frames = param->fps;
     int fullscreen = param->fullscreen;
+    char file_name[16];
 
     T_Thread_Arg thread_arg;
 
@@ -245,7 +264,8 @@ void demo(type_param* param)
 
     if(!cap) error("Couldn't connect to webcam.\n");
 
-    layer l = net->layers[net->n-1];
+    layer l = net->layers[net->n-1];    int frame_no = 0;
+
     demo_detections = l.n*l.w*l.h;
     int j;
 
@@ -264,6 +284,15 @@ void demo(type_param* param)
         buff_letter[i][1] = letterbox_image(buff[i][1], net->w, net->h);
         buff_letter[i][2] = letterbox_image(buff[i][2], net->w, net->h);
         ipl[i] = cvCreateImage(cvSize(buff[i][0].w, buff[i][0].h), IPL_DEPTH_8U, buff[i][0].c);
+        CvSize cvSize;
+        cvSize.height = net->h;
+        cvSize.width = net->w;
+//        memset(file_name,0x0,sizeof(file_name));
+//        sprintf(file_name,"output_%d.avi", i);
+//        int isColor = 1;
+//        int fps     = 20;  // or 30
+//        fps = cvGetCaptureProperty(cap[i], CV_CAP_PROP_FPS);
+//        wrt[i] = cvCreateVideoWriter(file_name, CV_FOURCC('h','2','6','4'), 20, cvSize, false);
     }
     int count = 0;
 
@@ -295,6 +324,11 @@ void demo(type_param* param)
             thread_arg.buff_index = buff_index[i];
             thread_arg.ipl = ipl[i];
             thread_arg.window_name = window_name[i];
+            thread_arg.wrt = &(wrt[i]);
+            thread_arg.count = count;
+            memset(file_name,0x0,sizeof(file_name));
+            sprintf(file_name,"output_%d.avi", i);
+            thread_arg.output_file = file_name;
 
             if(pthread_create(&fetch_thread, 0, fetch_in_thread, &thread_arg)) error("Thread creation failed");
             if(pthread_create(&detect_thread, 0, detect_in_thread, &thread_arg)) error("Thread creation failed");
@@ -310,13 +344,17 @@ void demo(type_param* param)
             }
             pthread_join(fetch_thread, 0);
             pthread_join(detect_thread, 0);
-
-            ++count;
         }
+        ++count;
     }
 
     if ( log4c_fini()){
         printf("log4c_fini() failed");
+    }
+
+    for(int i=0; i<2; i++)
+    {
+        cvReleaseVideoWriter(wrt[i]);
     }
 
     freeReplyObject(reply);
