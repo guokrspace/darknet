@@ -789,4 +789,7 @@ int *read_intlist(char *s, int *n, int d);
 size_t rand_size_t();
 float rand_normal();
 
+/* APIs */
+network * init_network(char *cfgfile, char*weightfile);
+image decode_frame(void *input_buf, int w, int h, int c, network *net);
 #endif

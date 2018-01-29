@@ -4,13 +4,18 @@ project(darknet)
 set(CMAKE_CXX_STANDARD 11)
 
 # so that we will find .h
-include_directories("./include" "./src" "/usr/local/log4c/include" "/usr/local/include/hiredis")
+include_directories("./include"
+                    "./src"
+                    "/usr/local/log4c/include"
+                    "/usr/local/include/hiredis"
+                    "/usr/local/cuda/include"
+                    "/usr/local/include/")
 
 add_definitions(-DOPENCV -DGPU -DDEBUG)
 set(COMMON_FLAGS "-Wall -Wno-unknown-pragmas -Wfatal-errors -fPIC -Ofast")
 set(CMAKE_C_FLAGS "${COMMON_FLAGS}")
 
-add_executable(darknet
+add_library(darknet SHARED
         examples/captcha.c
         examples/lsd.c
         examples/super.c
@@ -28,9 +33,6 @@ add_executable(darknet
         examples/nightmare.c
         examples/attention.c
         examples/darknet.c
-        )
-
-add_library(darklib
         src/activation_layer.c
         src/activations.c
         src/avgpool_layer.c
@@ -71,7 +73,7 @@ add_library(darklib
         src/softmax_layer.c
         src/stb_image.h
         src/tree.c
-        src/utils.c)
+        src/utils.c src/video.cpp src/video.h src/api.c src/api.h)
 
 set(OPENCV_CFLAGS "--cflags opencv")
 set(OPENCV_LIBRARIES "--libs opencv")
@@ -80,39 +82,41 @@ if (PKG_CONFIG_FOUND)
     pkg_check_modules(OPENCV "opencv")
     if (OPENCV_FOUND)
         add_definitions(${OPENCV_CFLAGS})
-        link_libraries(darknet ${OPENCV_LIBRARIES})
+        target_link_libraries(darknet ${OPENCV_LIBRARIES})
     else()
     endif()
 endif()
 
-find_package(CUDA)
-if(CUDA_FOUND)
+#MESSAGE(STATUS "OPENCV_CFLAGS:" ${OPENCV_CFLAGS})
+#MESSAGE(STATUS "OPENCV_LIBRARIES:" ${OPENCV_LIBRARIES})
 
-    # Pass options to NVCC
-    set(
-            CUDA_NVCC_FLAGS
-            ${CUDA_NVCC_FLAGS};
-            -O3 -gencode arch=compute_52,code=compute_52
-    )
-    cuda_add_library( cudalib
-            ./src/convolutional_kernels.cu
-            ./src/deconvolutional_kernels.cu
-            ./src/activation_kernels.cu
-            ./src/im2col_kernels.cu
-            ./src/col2im_kernels.cu
-            ./src/blas_kernels.cu
-            ./src/crop_layer_kernels.cu
-            ./src/dropout_layer_kernels.cu
-            ./src/maxpool_layer_kernels.cu
-            ./src/avgpool_layer_kernels.cu
-    )
-    link_directories("/usr/local/cuda/lib64")
-    target_link_libraries(cudalib -lcuda -lcudart -lcublas -lcurand)
-endif()
+#find_package(CUDA)
+#if(CUDA_FOUND)
+#    # Pass options to NVCC
+#    set(
+#            CUDA_NVCC_FLAGS
+#            ${CUDA_NVCC_FLAGS};
+#            -O3 -gencode arch=compute_52,code=compute_52
+#    )
+#    cuda_add_library(cudalib SHARED
+#            ./src/convolutional_kernels.cu
+#            ./src/deconvolutional_kernels.cu
+#            ./src/activation_kernels.cu
+#            ./src/im2col_kernels.cu
+#            ./src/col2im_kernels.cu
+#            ./src/blas_kernels.cu
+#            ./src/crop_layer_kernels.cu
+#            ./src/dropout_layer_kernels.cu
+#            ./src/maxpool_layer_kernels.cu
+#            ./src/avgpool_layer_kernels.cu)
+#endif()
 
+set(CUDALIBS /usr/local/cuda/lib64/libcublas.so /usr/local/cuda/lib64/libcurand.so /usr/local/cuda/lib64/libcudart.so)
 set(PThreadLib -pthread)
 set(MATHLIB -lm)
 set(REDISLIB /usr/local/lib/libhiredis.so)
 set(LOG4CLIB /usr/local/log4c/lib/liblog4c.so)
-target_link_libraries(darklib cudalib ${PThreadLib} ${MATHLIB})
-target_link_libraries(darknet darklib ${LOG4CLIB} ${REDISLIB})
+#target_link_libraries(darklib cudalib ${PThreadLib} ${MATHLIB})
+#target_link_libraries(darknet SHARED darklib ${LOG4CLIB} ${REDISLIB} ${CUDALIBS})
+target_link_libraries(darknet ${CUDALIBS} ${LOG4CLIB} ${REDISLIB} ${PThreadLib} ${MATHLIB})
+target_link_libraries(darknet /home/kai/darknet/cmake-build-debug/libcudalib.so)

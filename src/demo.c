@@ -4,6 +4,7 @@
 #include "region_layer.h"
 #include "cost_layer.h"
 #include "utils.h"
+#include "video.h"
 #include "parser.h"
 #include "box.h"
 #include "image.h"
@@ -13,7 +14,7 @@
 #define DEMO 1
 #ifdef OPENCV
 
-#define NUM_VIDEO_CHANNEL 2
+#define NUM_VIDEO_CHANNEL 4
 
 static char **demo_names;
 static image **demo_alphabet;
@@ -25,7 +26,7 @@ static network *net;
 image buff [NUM_VIDEO_CHANNEL][3];
 image buff_letter[NUM_VIDEO_CHANNEL][3];
 int buff_index[NUM_VIDEO_CHANNEL];
-static CvCapture * cap[NUM_VIDEO_CHANNEL];
+static VideoCapture_T *cap[NUM_VIDEO_CHANNEL];
 static CvVideoWriter* wrt[NUM_VIDEO_CHANNEL];
 IplImage  * ipl[NUM_VIDEO_CHANNEL];
 char window_name[NUM_VIDEO_CHANNEL][16];
@@ -65,7 +66,7 @@ typedef struct thread_arg{
 void *detect_in_thread(void *ptr)
 {
     T_Thread_Arg *arg = ptr;
-    CvCapture *cap = arg->cap;
+    VideoCapture_T *cap = arg->cap;
     image *buff = arg->buff;
     image *buff_letter =  arg->buff_letter;
     int buff_index = arg->buff_index;
@@ -103,8 +104,8 @@ void *detect_in_thread(void *ptr)
                     logger, output_buf);
     sprintf(output_buf+strlen(output_buf),"]}");
 
-    reply = redisCommand(c,"LPUSH objectlist %s", output_buf);
-    freeReplyObject(reply);
+//    reply = redisCommand(c,"LPUSH objectlist %s", output_buf);
+//    freeReplyObject(reply);
     memset(output_buf,0x0,sizeof(output_buf));
 
     demo_index = (demo_index + 1)%demo_frame;
@@ -116,11 +117,11 @@ void *detect_in_thread(void *ptr)
 void *fetch_in_thread(void *ptr)
 {
     T_Thread_Arg *arg = ptr;
-    CvCapture *cap = arg->cap;
+    VideoCapture_T *cap = arg->cap;
     image *buff = arg->buff;
     image *buff_letter =  arg->buff_letter;
     int buff_index = arg->buff_index;
-    int status = fill_image_from_stream_compress(cap, buff[buff_index], 0.5);
+    int status = fill_image_from_stream_compress(cap, buff[buff_index], 1);
     letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
     if(status == 0) demo_done = 1;
     return 0;
@@ -129,9 +130,9 @@ void *fetch_in_thread(void *ptr)
 void *display_in_thread(void *ptr)
 {
     T_Thread_Arg *arg = ptr;
-    CvCapture *cap = arg->cap;
+//    VideoCapture_T *cap = arg->cap;
     image *buff = arg->buff;
-    image *buff_letter =  arg->buff_letter;
+//    image *buff_letter =  arg->buff_letter;
     int buff_index = arg->buff_index;
     char *win_name = arg->window_name;
     IplImage *ipl = arg->ipl;
@@ -226,7 +227,7 @@ void demo(type_param* param)
     }
     logger = log4c_category_get("darknet");
 
-    const char *hostname = "101.200.39.177";
+    const char *hostname = "10.168.5.210";
     int port = 6379;
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
@@ -245,8 +246,9 @@ void demo(type_param* param)
     for(int i=0; i<NUM_VIDEO_CHANNEL;i++)
     {
         if(filename){
-            printf("video file: %s\n", filename);
-            cap[i] = cvCreateFileCapture(filename);
+            VideoCapture_T *capture = video_capture_init("rtsp://admin:admin@10.168.5.155:554/cam/realmonitor?channel=1&subtype=1");
+//          cap[i] = cvCreateFileCapture(filename);
+            cap[i] = capture;
         }else{
             cap[0] = cvCaptureFromCAM(cam_index);
 
@@ -267,6 +269,7 @@ void demo(type_param* param)
     layer l = net->layers[net->n-1];    int frame_no = 0;
 
     demo_detections = l.n*l.w*l.h;
+
     int j;
 
     avg = (float *) calloc(l.outputs, sizeof(float));
@@ -277,23 +280,18 @@ void demo(type_param* param)
     for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = (float *)calloc(l.classes+1, sizeof(float));
 
     for(int i=0; i<NUM_VIDEO_CHANNEL; i++) {
-        buff[i][0] = get_image_from_stream_compress(cap[i], 0.5);
-        buff[i][1] = get_image_from_stream_compress(cap[i], 0.5);
-        buff[i][2] = get_image_from_stream_compress(cap[i], 0.5);
+        buff[i][0] = get_image_from_stream_compress(cap[i], 1);
+        buff[i][1] = get_image_from_stream_compress(cap[i], 1);
+        buff[i][2] = get_image_from_stream_compress(cap[i], 1);
         buff_letter[i][0] = letterbox_image(buff[i][0], net->w, net->h);
-        buff_letter[i][1] = letterbox_image(buff[i][1], net->w, net->h);
-        buff_letter[i][2] = letterbox_image(buff[i][2], net->w, net->h);
+        buff_letter[i][1] = letterbox_image(buff[i][0], net->w, net->h);
+        buff_letter[i][2] = letterbox_image(buff[i][0], net->w, net->h);
         ipl[i] = cvCreateImage(cvSize(buff[i][0].w, buff[i][0].h), IPL_DEPTH_8U, buff[i][0].c);
         CvSize cvSize;
         cvSize.height = net->h;
         cvSize.width = net->w;
-//        memset(file_name,0x0,sizeof(file_name));
-//        sprintf(file_name,"output_%d.avi", i);
-//        int isColor = 1;
-//        int fps     = 20;  // or 30
-//        fps = cvGetCaptureProperty(cap[i], CV_CAP_PROP_FPS);
-//        wrt[i] = cvCreateVideoWriter(file_name, CV_FOURCC('h','2','6','4'), 20, cvSize, false);
     }
+
     int count = 0;
 
     if(!prefix){
@@ -355,12 +353,19 @@ void demo(type_param* param)
     for(int i=0; i<2; i++)
     {
         cvReleaseVideoWriter(wrt[i]);
+        video_capture_destroy(cap[i]);
+
     }
 
     freeReplyObject(reply);
 
     /* Disconnects and frees the context */
     redisFree(c);
+
+    /* Free the caps */
+    for(int i=0; i<NUM_VIDEO_CHANNEL; i++)
+    {
+    }
 
 }
 

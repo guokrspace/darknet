@@ -8,11 +8,12 @@
 #include <math.h>
 #include "box.h"
 #include "darknet.h"
+#include "video.h"
 
 #ifndef __cplusplus
 #ifdef OPENCV
 int fill_image_from_stream(CvCapture *cap, image im);
-int fill_image_from_stream_compress(CvCapture *cap, image im, float ratio);
+int fill_image_from_stream_compress(VideoCapture_T *cap, image im, float ratio);
 image ipl_to_image(IplImage* src);
 void ipl_into_image(IplImage* src, image im);
 void flush_stream_buffer(CvCapture *cap, int n);
@@ -62,6 +63,6 @@ image make_empty_image(int w, int h, int c);
 void copy_image_into(image src, image dest);
 
 image get_image_layer(image m, int l);
-
+image get_label(image **characters, char *string, int size);
 #endif
 

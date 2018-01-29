@@ -633,6 +633,8 @@ int is_network(section *s)
 
 network *parse_network_cfg(char *filename)
 {
+    printf("************Start parse_network_cfg*********************");
+
     list *sections = read_cfg(filename);
     node *n = sections->front;
     if(!n) error("Config file has no sections");
@@ -769,6 +771,8 @@ network *parse_network_cfg(char *filename)
 
 list *read_cfg(char *filename)
 {
+    printf("************Start read_cfg*********************\n");
+    printf(filename);
     FILE *file = fopen(filename, "r");
     if(file == 0) file_error(filename);
     char *line;

@@ -579,6 +579,8 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
     char *input = buff;
     int j;
     float nms=.3;
+
+
     while(1){
         if(filename){
             strncpy(input, filename, 256);

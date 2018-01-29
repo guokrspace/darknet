@@ -4,6 +4,7 @@
 #include "cuda.h"
 #include <stdio.h>
 #include <math.h>
+#include "video.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -642,7 +643,7 @@ image get_image_from_stream(CvCapture *cap)
 
 image get_image_from_stream_compress(CvCapture *cap, float ratio)
 {
-    IplImage* src = cvQueryFrame(cap);
+    IplImage* src = video_capture_read(cap);
     if (!src) return make_empty_image(0,0,0);
 
     IplImage *dst = cvCreateImage(cvSize(src->width*ratio, src->height*ratio),src->depth,src->nChannels);
@@ -662,9 +663,9 @@ int fill_image_from_stream(CvCapture *cap, image im)
     return 1;
 }
 
-int fill_image_from_stream_compress(CvCapture *cap, image im, float ratio)
+int fill_image_from_stream_compress(VideoCapture_T *cap, image im, float ratio)
 {
-    IplImage* src = cvQueryFrame(cap);
+    IplImage* src = video_capture_read(cap);
     if (!src) return 0;
 
     IplImage *dst = cvCreateImage(cvSize(src->width * ratio, src->height * ratio),src->depth,src->nChannels);
