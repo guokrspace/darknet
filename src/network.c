@@ -29,6 +29,7 @@
 #include "shortcut_layer.h"
 #include "parser.h"
 #include "data.h"
+#include "layer.h"
 
 load_args get_base_args(network *net)
 {
@@ -519,6 +520,8 @@ float **make_probs(network *net)
 
 void network_detect(network *net, image im, float thresh, float hier_thresh, float nms, box *boxes, float **probs)
 {
+//    printf("w, h, c: %d,%d,%d\n", im.w, im.h, im.c);
+//    printf("data %f,%f,%f,%f",im.data[0],im.data[1], im.data[2], im.data[3]);
     network_predict_image(net, im);
     layer l = net->layers[net->n-1];
     if(l.type == REGION){

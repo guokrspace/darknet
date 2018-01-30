@@ -86,37 +86,32 @@ if (PKG_CONFIG_FOUND)
     else()
     endif()
 endif()
+#
+find_package(CUDA)
+if(CUDA_FOUND)
+    # Pass options to NVCC
+    set(
+            CUDA_NVCC_FLAGS
+            ${CUDA_NVCC_FLAGS};
+            -O3 -gencode arch=compute_52,code=compute_52
+    )
+    set(CUDALIBS /usr/local/cuda/lib64/libcublas.so /usr/local/cuda/lib64/libcurand.so /usr/local/cuda/lib64/libcudart.so)
+    cuda_add_library(cudalib SHARED
+            ${CUDALIBS}
+            ./src/convolutional_kernels.cu
+            ./src/deconvolutional_kernels.cu
+            ./src/activation_kernels.cu
+            ./src/im2col_kernels.cu
+            ./src/col2im_kernels.cu
+            ./src/blas_kernels.cu
+            ./src/crop_layer_kernels.cu
+            ./src/dropout_layer_kernels.cu
+            ./src/maxpool_layer_kernels.cu
+            ./src/avgpool_layer_kernels.cu)
+endif()
 
-#MESSAGE(STATUS "OPENCV_CFLAGS:" ${OPENCV_CFLAGS})
-#MESSAGE(STATUS "OPENCV_LIBRARIES:" ${OPENCV_LIBRARIES})
-
-#find_package(CUDA)
-#if(CUDA_FOUND)
-#    # Pass options to NVCC
-#    set(
-#            CUDA_NVCC_FLAGS
-#            ${CUDA_NVCC_FLAGS};
-#            -O3 -gencode arch=compute_52,code=compute_52
-#    )
-#    cuda_add_library(cudalib SHARED
-#            ./src/convolutional_kernels.cu
-#            ./src/deconvolutional_kernels.cu
-#            ./src/activation_kernels.cu
-#            ./src/im2col_kernels.cu
-#            ./src/col2im_kernels.cu
-#            ./src/blas_kernels.cu
-#            ./src/crop_layer_kernels.cu
-#            ./src/dropout_layer_kernels.cu
-#            ./src/maxpool_layer_kernels.cu
-#            ./src/avgpool_layer_kernels.cu)
-#endif()
-
-set(CUDALIBS /usr/local/cuda/lib64/libcublas.so /usr/local/cuda/lib64/libcurand.so /usr/local/cuda/lib64/libcudart.so)
 set(PThreadLib -pthread)
 set(MATHLIB -lm)
 set(REDISLIB /usr/local/lib/libhiredis.so)
 set(LOG4CLIB /usr/local/log4c/lib/liblog4c.so)
-#target_link_libraries(darklib cudalib ${PThreadLib} ${MATHLIB})
-#target_link_libraries(darknet SHARED darklib ${LOG4CLIB} ${REDISLIB} ${CUDALIBS})
-target_link_libraries(darknet ${CUDALIBS} ${LOG4CLIB} ${REDISLIB} ${PThreadLib} ${MATHLIB})
-target_link_libraries(darknet /home/kai/darknet/cmake-build-debug/libcudalib.so)
+target_link_libraries(darknet cudalib ${CUDALIBS} ${LOG4CLIB} ${REDISLIB} ${PThreadLib} ${MATHLIB})
